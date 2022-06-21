@@ -1,0 +1,96 @@
+#!/bin/sh
+#
+# git-delete-merged - delete local branches that have been merged on GitHub
+#
+# Copyright (c) 2022 Akinori MUSHA
+#
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+# SUCH DAMAGE.
+#
+
+main () {
+    set -e
+
+    url="$(gh browse -n)"
+    case "$url" in
+        https://github.com/*/*)
+            path=${url#https://github.com/}
+            owner=${path%/*}
+            repo=${path#*/}
+            ;;
+        *)
+            echo Not a GitHub project. >&2
+            exit
+    esac
+
+    setup
+
+    gh api graphql -f query='query ($owner: String!, $repo: String!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequests(
+          states: [MERGED]
+          orderBy: {field: UPDATED_AT, direction: DESC}
+          first: 100
+        ) {
+          nodes {
+            headRefName
+            headRefOid
+            baseRefName
+          }
+        }
+      }
+    }' -f owner="$owner" -f repo="$repo" \
+       --jq '.data.repository.pullRequests.nodes | map("\(.headRefName) \(.headRefOid) \(.baseRefName)") | join("\n")' > "$MYTMPDIR"/merged
+
+    git branch --format="%(refname:lstrip=2) %(objectname)" | sort > "$MYTMPDIR"/locals
+
+    current="$(git rev-parse --abbrev-ref HEAD)"
+
+    cut -d' ' -f1,2 "$MYTMPDIR"/merged | sort -u | comm -12 - "$MYTMPDIR"/locals | while read branch sha; do
+        base="$(awk -v branch="$branch" '$1 == branch { print $2 }' "$MYTMPDIR"/merged)"
+        echo "$branch has been merged into $base." >&2
+        if [ "$branch" = "$current" ]; then
+            if git checkout "$base" && git pull --ff; then
+                git br -D "$branch"
+            fi
+        else
+            git br -D "$branch"
+        fi
+    done
+
+    teardown
+}
+
+setup () {
+    MYTMPDIR=$(mktemp -d "${TMPDIR-/tmp}/${0##*/}.XXXXXX")
+    trap 'teardown; exit 129' 1
+    trap 'teardown; exit 130' 2
+    trap 'teardown; exit 131' 3
+    trap 'teardown; exit 143' 15
+}
+
+teardown () {
+    rm -rf "$MYTMPDIR"
+}
+
+main "$@"
