@@ -67,7 +67,7 @@ main () {
     current="$(git rev-parse --abbrev-ref HEAD)"
 
     cut -d' ' -f1,2 "$MYTMPDIR"/merged | sort -u | comm -12 - "$MYTMPDIR"/locals | while read branch sha; do
-        base="$(awk -v branch="$branch" '$1 == branch { print $3 }' "$MYTMPDIR"/merged)"
+        base="$(awk -v branch="$branch" '$1 == branch { print $3; exit }' "$MYTMPDIR"/merged)"
         echo "$branch has been merged into $base." >&2
         if [ "$branch" = "$current" ]; then
             if git checkout "$base" && git pull --ff; then
