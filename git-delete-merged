@@ -31,7 +31,7 @@
 main () {
     set -e
 
-    url="$(gh browse -n)"
+    url="$(gh browse -n 2>/dev/null)"
     case "$url" in
         https://github.com/*/*)
             path=${url#https://github.com/}
