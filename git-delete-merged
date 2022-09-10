@@ -70,8 +70,8 @@ main () {
         base="$(awk -v branch="$branch" '$1 == branch { print $3; exit }' "$MYTMPDIR"/merged)"
         echo "$branch has been merged into $base." >&2
         if [ "$branch" = "$current" ]; then
-            if git checkout "$base" && git pull --ff; then
-                git br -D "$branch"
+            if git checkout "$base" -- && git pull --ff; then
+                git branch -D "$branch"
             fi
         else
             git br -D "$branch"
