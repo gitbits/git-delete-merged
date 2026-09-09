@@ -81,7 +81,10 @@ main () {
 
 setup () {
     MYTMPDIR=$(mktemp -d "${TMPDIR-/tmp}/${0##*/}.XXXXXX")
-    trap teardown 0 1 2 3 15
+    for sig in 0 1 2 3 15; do
+        trap 'ret=$?; trap "" 1 2 3 15; trap - 0
+            teardown; exit $(( '"$sig"' ? 128 + '"$sig"' : ret ))' "$sig"
+    done
 }
 
 teardown () {
