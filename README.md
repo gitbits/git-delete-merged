@@ -54,6 +54,19 @@ branch of the pull request and fast-forwards it.
 
 The exit status is nonzero if any deletion or fast-forward failed.
 
+## See also
+
+[git-sync](https://github.com/jacobwgillespie/git-sync) is a
+reimplementation of `hub sync` that fast-forwards local branches and
+deletes those whose upstream branch is gone, using only local history.
+It detects merge commits and squash merges, but not rebase merges, and
+it needs the remote branch to have been deleted.  This tool instead
+relies on GitHub's record of merged pull requests, so it handles every
+merge method and works whether or not the remote branch still exists,
+at the cost of requiring `gh`.  The two complement each other: run
+git-sync to fetch and fast-forward, then git-delete-merged to clean up
+what it left behind.
+
 ## License
 
 BSD 2-Clause.  See [LICENSE](LICENSE).
