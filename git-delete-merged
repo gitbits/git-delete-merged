@@ -62,19 +62,22 @@ main () {
     }' -f owner="$owner" -f repo="$repo" \
        --jq '.data.repository.pullRequests.nodes | map("\(.headRefName) \(.headRefOid) \(.baseRefName)") | join("\n")' > "$MYTMPDIR"/merged
 
-    git branch --format="%(refname:lstrip=2) %(objectname)" | sort > "$MYTMPDIR"/locals
+    git branch --format="%(refname:lstrip=2) %(objectname)" > "$MYTMPDIR"/locals
 
     git worktree list --porcelain |
         sed -n 's|^branch refs/heads/||p' > "$MYTMPDIR"/checkedout
 
-    cut -d' ' -f1,2 "$MYTMPDIR"/merged | sort -u |
-        comm -12 - "$MYTMPDIR"/locals | cut -d' ' -f1 > "$MYTMPDIR"/targets
+    # Local branches sharing a name with a merged pull request.
+    awk 'NR == FNR { merged[$1]; next } $1 in merged' \
+        "$MYTMPDIR"/merged "$MYTMPDIR"/locals > "$MYTMPDIR"/candidates
 
     current="$(git rev-parse --abbrev-ref HEAD)"
     ret=0
 
-    while read -r branch; do
-        base="$(awk -v branch="$branch" '$1 == branch { print $3; exit }' "$MYTMPDIR"/merged)"
+    while read -r branch sha; do
+        head="$(pr_field "$branch" 2)"
+        base="$(pr_field "$branch" 3)"
+        is_merged "$branch" "$sha" "$head" "$base" || continue
         echo "$branch has been merged into $base." >&2
         if [ "$branch" = "$current" ]; then
             if ! git checkout "$base" --; then
@@ -89,9 +92,64 @@ main () {
             continue
         fi
         git branch -D "$branch" || ret=1
-    done < "$MYTMPDIR"/targets
+    done < "$MYTMPDIR"/candidates
 
     exit $ret
+}
+
+# Print field N of the most recently updated merged pull request from BRANCH.
+pr_field () {
+    awk -v branch="$1" -v n="$2" '$1 == branch { print $n; exit }' "$MYTMPDIR"/merged
+}
+
+# Succeed when local BRANCH at SHA holds nothing beyond the pull request
+# merged from HEAD into BASE.
+is_merged () {
+    if [ "$2" = "$3" ]; then
+        return 0
+    fi
+
+    # A live upstream means the branch is still in use; the caller keeps it
+    # in sync and the exact match above decides.
+    if git rev-parse -q --verify "$1@{upstream}" >/dev/null 2>&1; then
+        return 1
+    fi
+
+    # The local copy is behind the merged head.
+    if git merge-base --is-ancestor "$1" "$3" 2>/dev/null; then
+        return 0
+    fi
+
+    base_commit="$(base_ref "$4")" || return 1
+
+    # Merged as is or rebased: every commit has an equivalent in the base.
+    if ! git cherry "$base_commit" "$1" | grep -q '^+'; then
+        return 0
+    fi
+
+    # Squash-merged: the combined patch has an equivalent in the base.
+    if squashed_into "$1" "$base_commit"; then
+        return 0
+    fi
+
+    echo "Leaving $1: it has changes not merged into $4." >&2
+    return 1
+}
+
+# Resolve the base branch name to the ref most likely to carry the merge.
+base_ref () {
+    git rev-parse -q --verify "$1@{upstream}" 2>/dev/null ||
+        git rev-parse -q --verify "refs/remotes/origin/$1" ||
+        git rev-parse -q --verify "refs/heads/$1"
+}
+
+# Succeed when the combined patch of BRANCH since it forked from BASE_COMMIT
+# matches a commit in BASE_COMMIT.
+squashed_into () {
+    merge_base="$(git merge-base "$2" "$1")" || return
+    patch_id="$(git diff-tree -p --no-renames "$merge_base" "$1" | git patch-id --stable | cut -d' ' -f1)"
+    [ -n "$patch_id" ] || return
+    git log -p --no-renames "$merge_base..$2" | git patch-id --stable | cut -d' ' -f1 | grep -qx "$patch_id"
 }
 
 setup () {
