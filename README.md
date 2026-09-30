@@ -14,8 +14,14 @@ remote branch to have been deleted.
 
 ## Installation
 
-Put `git-delete-merged` somewhere on your `PATH`.  Git then also
-accepts it as `git delete-merged`.
+Install with [mise](https://mise.jdx.dev/):
+
+```sh
+mise use -g github:gitbits/git-delete-merged@latest
+```
+
+Alternatively, put `git-delete-merged` somewhere on your `PATH`.
+Git then also accepts it as `git delete-merged`.
 
 ## Usage
 
